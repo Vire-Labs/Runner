@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Runner | System</title>
+
+<style>
+    *{
+        box-sizing:border-box;
+    }
+
+    body{
+        margin:0;
+        background:#000;
+        color:#fff;
+        font-family:'Courier New', monospace;
+        overflow:hidden;
+        display:flex;
+        flex-direction:column;
+        justify-content:center;
+        align-items:center;
+        height:100vh;
+        touch-action:manipulation;
+    }
+
+    h1{
+        letter-spacing:5px;
+        font-weight:200;
+    }
+
+    #setup,
+    #game-ui,
+    #game-over{
+        text-align:center;
+    }
+
+    #game-ui,
+    #game-over{
+        display:none;
+    }
+
+    canvas{
+        background:#050505;
+        border-bottom:2px solid #333;
+        max-width:95vw;
+    }
+
+    input,
+    select{
+        background:#111;
+        color:#fff;
+        border:1px solid #333;
+        padding:10px;
+        margin:5px;
+        text-align:center;
+        width:220px;
+    }
+
+    button{
+        background:#fff;
+        color:#000;
+        border:none;
+        padding:12px 24px;
+        cursor:pointer;
+        font-weight:bold;
+        transition:0.2s;
+    }
+
+    button:hover{
+        background:#ccc;
+    }
+
+    #status{
+        margin-bottom:10px;
+        letter-spacing:1px;
+        font-size:0.9em;
+    }
+
+    .footer{
+        position:absolute;
+        bottom:15px;
+        font-size:0.7em;
+        opacity:0.4;
+        letter-spacing:2px;
+    }
+
+    .hint{
+        font-size:0.7em;
+        opacity:0.5;
+    }
+</style>
+</head>
+
+<body>
+
+<div id="setup">
+    <h1>RUNNER</h1>
+
+    <input type="text" id="name" placeholder="NOMBRE"><br>
+
+    <select id="animal">
+        <option value="🐺">🐺 Lobo</option>
+        <option value="🦉">🦉 Búho</option>
+        <option value="🦊">🦊 Zorro</option>
+        <option value="🐍">🐍 Serpiente</option>
+    </select>
+
+    <br><br>
+
+    <button onclick="init()">JUGAR</button>
+</div>
+
+<div id="game-ui">
+    <div id="status">SCORE: 0 | RANGO: OPERARIO</div>
+    <canvas id="c"></canvas>
+    <p class="hint">TOCA LA PANTALLA PARA SALTAR</p>
+</div>
+
+<div id="game-over">
+    <h2>GAME OVER</h2>
+    <p id="final-score"></p>
+    <button onclick="restartGame()">REINTENTAR</button>
+</div>
+
+<div class="footer">CREATED BY VIRE</div>
+
+<script>
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+
+function resizeCanvas(){
+    c.width = Math.min(window.innerWidth * 0.92, 700);
+    c.height = 240;
+}
+
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+let player;
+let obstacles;
+let score;
+let speed;
+let frame;
+let gameActive;
+let highScore = localStorage.getItem('runnerHighScore') || 0;
+
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(type){
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    if(type === 'jump'){
+        osc.frequency.value = 420;
+        gain.gain.value = 0.05;
+        osc.type = 'square';
+        osc.frequency.exponentialRampToValueAtTime(620, audioCtx.currentTime + 0.08);
+    }
+
+    if(type === 'score'){
+        osc.frequency.value = 260;
+        gain.gain.value = 0.03;
+        osc.type = 'triangle';
+        osc.frequency.exponentialRampToValueAtTime(340, audioCtx.currentTime + 0.05);
+    }
+
+    if(type === 'gameover'){
+        osc.frequency.value = 220;
+        gain.gain.value = 0.08;
+        osc.type = 'sawtooth';
+        osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.4);
+    }
+
+    osc.start();
+
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.25);
+
+    osc.stop(audioCtx.currentTime + 0.25);
+}
+
+
+function resetVariables(){
+    player = {
+        x: 60,
+        y: 170,
+        width: 26,
+        height: 26,
+        vy: 0,
+        icon: document.getElementById('animal').value
+    };
+
+    obstacles = [];
+    score = 0;
+    speed = 5;
+    frame = 0;
+    gameActive = true;
+}
+
+function init(){
+    document.getElementById('setup').style.display = 'none';
+    document.getElementById('game-over').style.display = 'none';
+    document.getElementById('game-ui').style.display = 'block';
+
+    resetVariables();
+    loop();
+}
+
+function restartGame(){
+    document.getElementById('game-over').style.display = 'none';
+    document.getElementById('game-ui').style.display = 'block';
+
+    resetVariables();
+    loop();
+}
+
+function jump(){
+    if(gameActive && player.y >= 170){
+        player.vy = -13;
+        playSound('jump');
+    }
+}
+
+window.addEventListener('touchstart', jump);
+window.addEventListener('click', jump);
+
+function createObstacle(){
+    obstacles.push({
+        x: c.width,
+        y: 182,
+        w: 24,
+        h: 24
+    });
+}
+
+function drawBackground(){
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0,0,c.width,c.height);
+
+    for(let i = 0; i < c.width; i += 40){
+        ctx.fillStyle = '#0f0f0f';
+        ctx.fillRect((i - (frame * 0.5) % 40), 200, 20, 2);
+    }
+}
+
+function drawPlayer(){
+    player.vy += 0.7;
+    player.y += player.vy;
+
+    if(player.y > 170){
+        player.y = 170;
+        player.vy = 0;
+    }
+
+    ctx.font = '28px serif';
+    ctx.shadowColor = '#ffffff';
+    ctx.shadowBlur = 12;
+
+    ctx.fillText(player.icon, player.x, player.y);
+
+    ctx.shadowBlur = 0;
+}
+
+function drawObstacles(){
+    obstacles.forEach((o, index) => {
+
+        o.x -= speed;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = '#ffffff';
+        ctx.shadowBlur = 8;
+        ctx.fillRect(o.x, o.y, o.w, o.h);
+        ctx.shadowBlur = 0;
+
+        const collision =
+            o.x < player.x + player.width &&
+            o.x + o.w > player.x &&
+            player.y > 145;
+
+        if(collision){
+            endGame();
+        }
+
+        if(o.x + o.w < 0){
+            obstacles.splice(index, 1);
+            speed += 0.15;
+            playSound('score');
+        }
+    });
+}
+
+function updateScore(){
+    score += 0.12;
+
+    if(score > highScore){
+        highScore = Math.floor(score);
+        localStorage.setItem('runnerHighScore', highScore);
+    }
+
+    const rank = score > 800
+        ? 'ÉLITE'
+        : score > 400
+        ? 'ESPECIALISTA'
+        : 'OPERARIO';
+
+    document.getElementById('status').innerText =
+        `SCORE: ${Math.floor(score)} | RECORD: ${highScore} | RANGO: ${rank}`;
+}
+
+function endGame(){
+    gameActive = false;
+    playSound('gameover');
+
+    document.getElementById('game-ui').style.display = 'none';
+    document.getElementById('game-over').style.display = 'block';
+
+    document.getElementById('final-score').innerText =
+        `PUNTUACIÓN FINAL: ${Math.floor(score)}`;
+}
+
+function loop(){
+
+    if(!gameActive){
+        return;
+    }
+
+    drawBackground();
+    drawPlayer();
+
+    if(frame % Math.max(28, Math.floor(95 - score / 18)) === 0){
+        createObstacle();
+    }
+
+    drawObstacles();
+    updateScore();
+
+    frame++;
+
+    requestAnimationFrame(loop);
+}
+</script>
+
+</body>
+</html>
